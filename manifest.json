@@ -1,0 +1,9 @@
+{
+  "name": "森能量",
+  "short_name": "森能量",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#073427",
+  "theme_color": "#073427",
+  "lang": "zh-CN"
+}

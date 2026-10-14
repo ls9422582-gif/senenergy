@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>森能量 V8.2</title>
+<style>
+body{margin:0;background:#073427;color:#effff4;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+.app{max-width:430px;margin:auto;padding:16px}
+.card{background:#ffffff12;border:1px solid #a7ffcb44;border-radius:24px;padding:16px;margin-bottom:15px}
+h2{font-size:18px;margin:0 0 12px 0}
+.energy{text-align:center;font-size:60px;color:#a7ffcb;font-weight:bold}
+.wild{text-align:center;font-size:55px}
+input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:15px;border:0;margin:5px 0;font-size:15px}
+button{background:#a7ffcb;color:#073427}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+canvas{width:100%;background:#0002;border-radius:16px}
+.info{background:#ffffff12;padding:12px;border-radius:15px;line-height:1.6}
+.small{font-size:12px;color:rgba(239,255,244,.75)}
+</style>
+<link rel="manifest" href="manifest.json"></head>
+<body>
+<div class="app">
+
+<div class="card">
+  <div class="wild">🌿</div>
+  <h2>今日能量</h2>
+  <div class="energy" id="energy">80%</div>
+</div>
+
+<div class="card">
+  <h2>清晨状态（今日起点）</h2>
+  <div class="grid3">
+    <button onclick="setStart(60)">🌱60%</button>
+    <button onclick="setStart(80)">🍃80%</button>
+    <button onclick="setStart(100)">🌞100%</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>实时能量轨迹</h2>
+  <canvas id="energyChart" width="390" height="240"></canvas>
+  <div class="small" style="margin-top:8px;">已加入纵坐标。点击节点查看事件详情。</div>
+  <div class="info" id="energyInfo">点击节点查看事件</div>
+</div>
+
+<div class="card">
+  <h2>添加事件</h2>
+  <input id="time" type="time" step="3600">
+  <input id="name" placeholder="发生了什么？">
+  <input id="delta" type="number" placeholder="能量变化 +15 / -20">
+  <input id="reason" placeholder="影响重点（可选）">
+  <button onclick="addEvent()">添加事件</button>
+</div>
+
+<div class="card">
+  <h2>睡眠规律趋势</h2>
+  <input id="sleepDate" type="date">
+  <input id="sleepTime" type="time" value="23:00">
+  <input id="wakeTime" type="time" value="07:00">
+  <button onclick="addSleep()">保存睡眠</button>
+  <canvas id="sleepChart" width="390" height="210"></canvas>
+  <div class="info" id="sleepInfo">点击睡眠节点查看日期、入睡时间、睡眠时长</div>
+</div>
+
+</div>
+
+<script>
+let start=80, events=[], sleeps=[];
+let energyPoints=[], sleepPoints=[];
+
+function setStart(v){
+  start=v;
+  drawEnergy();
+}
+
+function addEvent(){
+  let t=document.getElementById("time").value;
+  let n=document.getElementById("name").value.trim();
+  let d=Number(document.getElementById("delta").value);
+  let r=document.getElementById("reason").value.trim();
+  if(!n||isNaN(d)){alert("请输入事件和能量变化");return}
+  events.push({time:t,name:n,delta:d,reason:r});
+  events.sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  document.getElementById("name").value="";
+  document.getElementById("delta").value="";
+  document.getElementById("reason").value="";
+  drawEnergy();
+}
+
+function getSeries(){
+  let e=start;
+  return [{name:"清晨起点",energy:e,time:"起点",reason:""}].concat(events.map(x=>{
+    e=Math.max(0,Math.min(100,e+x.delta));
+    return {...x,energy:e};
+  }));
+}
+
+function drawYAxis(ctx, padL, padT, chartH){
+  const levels = [100, 75, 50, 25, 0];
+  ctx.strokeStyle="rgba(255,255,255,.10)";
+  ctx.fillStyle="rgba(239,255,244,.72)";
+  ctx.lineWidth=1;
+  ctx.font="12px sans-serif";
+  levels.forEach(level=>{
+    const y = padT + (100-level)/100 * chartH;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(372, y);
+    ctx.stroke();
+    ctx.fillText(level + "%", 4, y+4);
+  });
+}
+
+function drawWildmanOnChart(ctx, currentEnergy, x, y){
+  let icon = "";
+  let label = "";
+  if(currentEnergy > 85){
+    icon = "🧝";
+    label = "能量满满";
+  }else if(currentEnergy < 50){
+    icon = "🧎";
+    label = "有点疲惫";
+  }else{
+    icon = "🌿";
+    label = "状态平稳";
+  }
+
+  ctx.font = "28px sans-serif";
+  ctx.fillText(icon, x, y);
+  ctx.font = "12px sans-serif";
+  ctx.fillStyle = "rgba(239,255,244,.85)";
+  ctx.fillText(label, x-8, y+18);
+}
+
+function drawEnergy(){
+  let c=document.getElementById("energyChart"),ctx=c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  let s=getSeries();
+  const current = s[s.length-1].energy;
+  document.getElementById("energy").innerText=current+"%";
+  energyPoints=[];
+
+  const padL = 38, padR = 18, padT = 18, padB = 28;
+  const chartW = c.width - padL - padR;
+  const chartH = c.height - padT - padB;
+
+  drawYAxis(ctx, padL, padT, chartH);
+
+  ctx.strokeStyle="#a7ffcb";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+
+  s.forEach((x,i)=>{
+    let px = padL + i*chartW/Math.max(1,s.length-1);
+    let py = padT + (100-x.energy)/100 * chartH;
+    energyPoints.push({x:px,y:py,data:x});
+    i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+  });
+  ctx.stroke();
+
+  energyPoints.forEach(p=>{
+    ctx.fillStyle="#fff";
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,6,0,7);
+    ctx.fill();
+  });
+
+  // draw time labels for event nodes
+  ctx.fillStyle="rgba(239,255,244,.75)";
+  ctx.font="11px sans-serif";
+  energyPoints.forEach((p, idx)=>{
+    const label = energyPoints[idx].data.time || "";
+    if(label){
+      ctx.fillText(label, Math.max(0,p.x-14), c.height-8);
+    }
+  });
+
+  // show wildman state on chart
+  const lastPoint = energyPoints[energyPoints.length-1];
+  if(lastPoint){
+    drawWildmanOnChart(ctx, current, Math.min(c.width-70,lastPoint.x+8), Math.max(34,lastPoint.y-12));
+  }
+}
+
+document.getElementById("energyChart").onclick=e=>{
+  let r=e.target.getBoundingClientRect();
+  let scaleX = e.target.width / r.width;
+  let scaleY = e.target.height / r.height;
+  let x=(e.clientX-r.left)*scaleX, y=(e.clientY-r.top)*scaleY;
+  energyPoints.forEach(p=>{
+    if(Math.hypot(p.x-x,p.y-y)<15){
+      let d=p.data;
+      document.getElementById("energyInfo").innerHTML =
+        "<strong>"+ (d.time || "起点") +"</strong> " + d.name +
+        "<br>能量变化：" + (d.delta!==undefined ? ((d.delta>0?"+":"")+d.delta+"%") : "起点") +
+        "<br>当前能量：" + d.energy + "%" +
+        "<br>" + (d.reason || "—");
+    }
+  })
+}
+
+function hour(t){
+  let [h,m]=t.split(":").map(Number);
+  let v=h+m/60;
+  return v<12 ? v+24 : v;
+}
+
+function addSleep(){
+  let d=document.getElementById("sleepDate").value;
+  let s=document.getElementById("sleepTime").value;
+  let w=document.getElementById("wakeTime").value;
+  if(!d){alert("请先选择日期");return;}
+  let old=sleeps.find(x=>x.date==d);
+  old ? Object.assign(old,{sleep:s,wake:w}) : sleeps.push({date:d,sleep:s,wake:w});
+  sleeps.sort((a,b)=>a.date.localeCompare(b.date));
+  drawSleep();
+}
+
+function drawLine(ctx, arr, min, max, color, type, padL, padT, chartW, chartH){
+  if(arr.length<1) return;
+  ctx.strokeStyle=color;
+  ctx.lineWidth=3;
+  ctx.beginPath();
+  arr.forEach((v,i)=>{
+    let x = padL + i*chartW/Math.max(1,arr.length-1);
+    let y = padT + chartH - ((v-min)/(max-min))*chartH;
+    sleepPoints.push({x,y,i,type});
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  });
+  ctx.stroke();
+  arr.forEach((v,i)=>{
+    let x = padL + i*chartW/Math.max(1,arr.length-1);
+    let y = padT + chartH - ((v-min)/(max-min))*chartH;
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(x,y,6,0,7);
+    ctx.fill();
+  });
+}
+
+function drawSleep(){
+  let c=document.getElementById("sleepChart"),ctx=c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  sleepPoints=[];
+
+  const padL = 38, padR = 18, padT = 18, padB = 26;
+  const chartW = c.width - padL - padR;
+  const chartH = c.height - padT - padB;
+
+  // background guide lines
+  ctx.strokeStyle="rgba(255,255,255,.10)";
+  ctx.fillStyle="rgba(239,255,244,.72)";
+  ctx.lineWidth=1;
+  ctx.font="12px sans-serif";
+
+  const sleepInLevels = [27,25,23,21];
+  sleepInLevels.forEach(v=>{
+    let y = padT + chartH - ((v-21)/(27-21))*chartH;
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(c.width-padR,y); ctx.stroke();
+    const txt = (v>=24?String(v-24).padStart(2,'0'):String(v).padStart(2,'0')) + ":00";
+    ctx.fillText(txt, 2, y+4);
+  });
+
+  if(sleeps.length===0) return;
+
+  let line1 = sleeps.map(x=>hour(x.sleep));
+  let line2 = sleeps.map(x=>{
+    let a=hour(x.sleep), b=hour(x.wake);
+    if(b<a) b+=24;
+    return b-a;
+  });
+
+  drawLine(ctx, line1, 21, 27, "#a7ffcb", "sleep", padL, padT, chartW, chartH);
+  drawLine(ctx, line2, 0, 12, "#ffffff", "duration", padL, padT, chartW, chartH);
+
+  // x labels dates
+  ctx.fillStyle="rgba(239,255,244,.72)";
+  ctx.font="11px sans-serif";
+  sleeps.forEach((s, i)=>{
+    const x = padL + i*chartW/Math.max(1,sleeps.length-1);
+    ctx.fillText(s.date.slice(5), Math.max(0,x-16), c.height-8);
+  });
+}
+
+document.getElementById("sleepChart").onclick=e=>{
+  let r=e.target.getBoundingClientRect();
+  let scaleX = e.target.width / r.width;
+  let scaleY = e.target.height / r.height;
+  let x=(e.clientX-r.left)*scaleX, y=(e.clientY-r.top)*scaleY;
+  sleepPoints.forEach(p=>{
+    if(Math.hypot(p.x-x,p.y-y)<15){
+      let s=sleeps[p.i];
+      let a=hour(s.sleep), b=hour(s.wake); if(b<a) b+=24;
+      document.getElementById("sleepInfo").innerHTML =
+        "<strong>"+s.date+"</strong><br>入睡时间："+s.sleep+
+        "<br>睡眠时长："+(b-a).toFixed(1)+"小时";
+    }
+  })
+}
+
+drawEnergy();
+</script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('service-worker.js')}</script></body>
+</html>
